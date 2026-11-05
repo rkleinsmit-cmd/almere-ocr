@@ -10,13 +10,13 @@ class BenchmarkTests(unittest.TestCase):
 
     def test_single_character_error(self):
         result = benchmark("kat", "kas")
-        self.assertEqual(result["cer"], 1 / 3)
+        self.assertAlmostEqual(result["cer"], 1 / 3, places=6)
         self.assertEqual(result["wer"], 1)
 
     def test_missing_word(self):
         result = benchmark("een twee drie", "een drie")
         self.assertEqual(result["word_errors"], 1)
-        self.assertEqual(result["wer"], 1 / 3)
+        self.assertAlmostEqual(result["wer"], 1 / 3, places=6)
 
     def test_no_reference_is_invalid(self):
         with self.assertRaises(ValueError):
