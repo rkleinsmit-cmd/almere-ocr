@@ -15,11 +15,8 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-SOURCE_URL = (
-    "https://almere.notubiz.nl/document/11228049/4/"
-    "3_+Vaststelling+Chw+bestemmingsplan+Oosterwold+1e+partiele+herziening+BESTEMMINGSPLAN"
-    "?connection_type=1&connection_id=6758047"
-)
+PROXY_URL = "https://yfnxuhuxdagomklpgswh.supabase.co/functions/v1/ocr-github-oidc-pdf-probe-v1?document_id=28301"
+OIDC_AUDIENCE = "almere-ocr-supabase-pdf-v1"
 MAX_PDF_BYTES = 40_000_000
 
 
@@ -28,12 +25,21 @@ def run(*args, timeout=600):
 
 
 def download_pdf(destination):
+    token_request_url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
+    token_request_secret = os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]
+    from urllib.parse import urlencode
+    separator = "&" if "?" in token_request_url else "?"
+    oidc_request = urllib.request.Request(
+        token_request_url + separator + urlencode({"audience": OIDC_AUDIENCE}),
+        headers={"Authorization": "Bearer " + token_request_secret},
+    )
+    with urllib.request.urlopen(oidc_request, timeout=20) as oidc_response:
+        oidc_token = json.load(oidc_response)["value"]
     request = urllib.request.Request(
-        SOURCE_URL,
+        PROXY_URL,
         headers={
             "Accept": "application/pdf",
-            "Referer": "https://almere.notubiz.nl/",
-            "User-Agent": "AlmereOCRQualityProbe/1.0",
+            "Authorization": "Bearer " + oidc_token,
         },
     )
     with urllib.request.urlopen(request, timeout=90) as response:
