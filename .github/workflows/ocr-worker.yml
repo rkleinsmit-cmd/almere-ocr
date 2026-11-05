@@ -2,6 +2,9 @@ name: OCR wachtrij worker
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/ocr-worker.yml'
 
 permissions:
   contents: read
