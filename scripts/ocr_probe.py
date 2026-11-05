@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Read-only OCR probe for one public Almere NotuBiz PDF page.
+
+No OCR text, rendered images, or downloaded documents are uploaded to GitHub.
+Only aggregate statistics are printed for inspection.
+"""
+import argparse
+import csv
+import io
+import json
+import os
+import statistics
+import subprocess
+import tempfile
+import urllib.request
+from pathlib import Path
+
+SOURCE_URL = (
+    "https://almere.notubiz.nl/document/11228049/4/"
+    "3_+Vaststelling+Chw+bestemmingsplan+Oosterwold+1e+partiele+herziening+BESTEMMINGSPLAN"
+    "?connection_type=1&connection_id=6758047"
+)
+MAX_PDF_BYTES = 40_000_000
+
+
+def run(*args, timeout=600):
+    return subprocess.run(args, check=True, capture_output=True, text=True, timeout=timeout)
+
+
+def download_pdf(destination):
+    request = urllib.request.Request(
+        SOURCE_URL,
+        headers={
+            "Accept": "application/pdf",
+            "Referer": "https://almere.notubiz.nl/",
+            "User-Agent": "AlmereOCRQualityProbe/1.0",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=90) as response:
+        declared = int(response.headers.get("Content-Length", "0"))
+        if declared > MAX_PDF_BYTES:
+            raise ValueError("Document exceeds download limit")
+        with destination.open("wb") as f:
+            total = 0
+            while True:
+                chunk = response.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_PDF_BYTES:
+                    raise ValueError("Document exceeds download limit")
+                f.write(chunk)
+    with destination.open("rb") as f:
+        if f.read(5) != b"%PDF-":
+            raise ValueError("Source did not return a PDF")
+    return total
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--page", type=int, default=387)
+    parser.add_argument("--dpi", type=int, choices=(200, 250, 300, 350), default=300)
+    args = parser.parse_args()
+    if not 1 <= args.page <= 1000:
+        parser.error("Page must be between 1 and 1000")
+
+    with tempfile.TemporaryDirectory(prefix="almere_ocr_") as temporary:
+        folder = Path(temporary)
+        pdf = folder / "source.pdf"
+        source_bytes = download_pdf(pdf)
+        info = run("pdfinfo", str(pdf), timeout=90).stdout
+        pages = int(next(line.split(":", 1)[1].strip() for line in info.splitlines() if line.startswith("Pages:")))
+        if args.page > pages:
+            parser.error(f"Page {args.page} exceeds the PDF page count {pages}")
+
+        image_prefix = folder / "page"
+        run(
+            "pdftoppm", "-f", str(args.page), "-l", str(args.page),
+            "-r", str(args.dpi), "-singlefile", "-gray",
+            "-png", str(pdf), str(image_prefix), timeout=600,
+        )
+        image = folder / "page.png"
+        tsv = run("tesseract", str(image), "stdout", "-l", "nld+eng", "--psm", "3", "tsv", timeout=600).stdout
+        rows = list(csv.DictReader(io.StringIO(tsv), delimiter="\t"))
+        words = [r for r in rows if r["level"] == "5" and r["text"].strip()]
+        confidence = [float(r["conf"]) for r in words if float(r["conf"]) >= 0]
+        report = {
+            "document_id": 28301,
+            "page": args.page,
+            "total_pages": pages,
+            "dpi": args.dpi,
+            "pdf_bytes": source_bytes,
+            "image_bytes": image.stat().st_size,
+            "recognized_words": len(words),
+            "recognized_characters": sum(len(r["text"]) for r in words),
+            "mean_word_confidence": round(statistics.mean(confidence), 1) if confidence else None,
+            "median_word_confidence": round(statistics.median(confidence), 1) if confidence else None,
+            "words_confidence_below_50": sum(c < 50 for c in confidence),
+            "status": "completed",
+            "note": "Statistics are not an independent OCR accuracy benchmark.",
+        }
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as output:
+                output.write("## OCR proefmeting\n\n")
+                output.write("| Kenmerk | Resultaat |\n|---|---:|\n")
+                for key, value in report.items():
+                    output.write(f"| {key} | {value} |\n")
+                output.write("\nGeen documentinhoud of OCR tekst gepubliceerd.\n")
+
+
+if __name__ == "__main__":
+    main()
