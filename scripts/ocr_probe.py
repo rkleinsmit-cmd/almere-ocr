@@ -13,6 +13,7 @@ import statistics
 import subprocess
 import tempfile
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 PROXY_URL = "https://yfnxuhuxdagomklpgswh.supabase.co/functions/v1/ocr-github-oidc-pdf-probe-v1?document_id=28301"
@@ -42,7 +43,13 @@ def download_pdf(destination):
             "Authorization": "Bearer " + oidc_token,
         },
     )
-    with urllib.request.urlopen(request, timeout=90) as response:
+    try:
+        response_context = urllib.request.urlopen(request, timeout=90)
+    except urllib.error.HTTPError as exc:
+        # The proxy returns a short machine-readable error code, not the PDF.
+        detail = exc.read(1000).decode("utf-8", errors="replace")
+        raise RuntimeError(f"Supabase PDF proxy HTTP {exc.code}: {detail}") from None
+    with response_context as response:
         declared = int(response.headers.get("Content-Length", "0"))
         if declared > MAX_PDF_BYTES:
             raise ValueError("Document exceeds download limit")
