@@ -1,4 +1,5 @@
 name: OCR wachtrij worker
+# Acceptance test: retry with explicit short-page classification
 
 on:
   workflow_dispatch:
