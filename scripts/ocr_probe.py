@@ -117,7 +117,7 @@ def main():
         for word in words:
             key = (word["block_num"], word["par_num"], word["line_num"])
             lines.setdefault(key, []).append(word["text"])
-        recognized_text = "\\n".join(" ".join(line) for line in lines.values())
+        recognized_text = "\n".join(" ".join(line) for line in lines.values())
         payload = {
             "document_id": 28301, "page": args.page, "dpi": args.dpi,
             "engine": "tesseract-nld-eng", "text": recognized_text,
