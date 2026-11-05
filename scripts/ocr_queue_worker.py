@@ -63,7 +63,7 @@ def main():
                 key=(w["block_num"],w["par_num"],w["line_num"])
                 lines.setdefault(key,[]).append(w["text"])
             text="\n".join(" ".join(line) for line in lines.values())
-            if len(text)<100:raise ValueError("OCR text too short for automatic import")
+            if len(text)<100:raise ValueError("ocr_text_too_short: needs manual review")
             conf=[float(w["conf"]) for w in words if float(w["conf"])>=0]
             payload={"action":"result","document_id":document_id,"page":page,"lease_token":lease,
                 "engine":"tesseract-nld-eng","dpi":300,"text":text,
