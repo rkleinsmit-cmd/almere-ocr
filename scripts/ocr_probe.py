@@ -123,7 +123,7 @@ def main():
             "engine": "tesseract-nld-eng", "text": recognized_text,
             "statistics": report,
         }
-        if args.page == 387 and args.dpi == 300:
+        if args.page in (386, 387, 388) and args.dpi == 300:
             upload_request = urllib.request.Request(
                 PROXY_URL,
                 data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
