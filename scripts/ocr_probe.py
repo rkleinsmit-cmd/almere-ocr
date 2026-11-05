@@ -66,7 +66,7 @@ def download_pdf(destination):
     with destination.open("rb") as f:
         if f.read(5) != b"%PDF-":
             raise ValueError("Source did not return a PDF")
-    return total
+    return total, oidc_token
 
 
 def main():
@@ -80,7 +80,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="almere_ocr_") as temporary:
         folder = Path(temporary)
         pdf = folder / "source.pdf"
-        source_bytes = download_pdf(pdf)
+        source_bytes, oidc_token = download_pdf(pdf)
         info = run("pdfinfo", str(pdf), timeout=90).stdout
         pages = int(next(line.split(":", 1)[1].strip() for line in info.splitlines() if line.startswith("Pages:")))
         if args.page > pages:
@@ -112,6 +112,32 @@ def main():
             "status": "completed",
             "note": "Statistics are not an independent OCR accuracy benchmark.",
         }
+        # Save OCR text only in private Supabase Storage, never in public GitHub logs.
+        lines = {}
+        for word in words:
+            key = (word["block_num"], word["par_num"], word["line_num"])
+            lines.setdefault(key, []).append(word["text"])
+        recognized_text = "\\n".join(" ".join(line) for line in lines.values())
+        payload = {
+            "document_id": 28301, "page": args.page, "dpi": args.dpi,
+            "engine": "tesseract-nld-eng", "text": recognized_text,
+            "statistics": report,
+        }
+        if args.page == 387 and args.dpi == 300:
+            upload_request = urllib.request.Request(
+                PROXY_URL,
+                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers={"Authorization": "Bearer " + oidc_token, "Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(upload_request, timeout=45) as upload_response:
+                    upload_result = json.load(upload_response)
+            except urllib.error.HTTPError as exc:
+                raise RuntimeError(f"OCR result upload failed HTTP {exc.code}: "
+                                   + exc.read(500).decode("utf-8", errors="replace")) from None
+            report["storage_write"] = upload_result.get("ok")
+            report["storage_path"] = upload_result.get("storage_path")
         print(json.dumps(report, ensure_ascii=False, indent=2))
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
         if summary:
