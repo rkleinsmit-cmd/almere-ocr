@@ -6,6 +6,7 @@ on:
   push:
     paths:
       - ".github/workflows/ocr-worker.yml"
+      - "scripts/audit_ocr_results.py"
 
 permissions:
   contents: read
@@ -25,7 +26,10 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-nld tesseract-ocr-eng
+      - name: Audit three stored Tesseract pages
+        run: python3 scripts/audit_ocr_results.py
       - name: Process capped 250 page technical trial
+        if: github.event_name == 'workflow_dispatch'
         run: |
           failures=0
           for i in $(seq 1 285); do
