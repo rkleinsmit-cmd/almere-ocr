@@ -1,0 +1,1 @@
+Second read-only trigger test. Do not merge.
