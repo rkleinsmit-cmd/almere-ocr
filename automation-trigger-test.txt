@@ -1,0 +1,1 @@
+Read-only automation trigger test. Do not merge.
