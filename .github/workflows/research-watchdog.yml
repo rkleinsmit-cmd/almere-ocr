@@ -1,0 +1,43 @@
+name: Almere research watchdog
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/research-watchdog.yml'
+  schedule:
+    - cron: '37 * * * *'
+permissions:
+  contents: read
+jobs:
+  monitor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'psycopg[binary]==3.2.6'
+      - name: Check actual research output
+        env:
+          DATABASE_URL: ${{ secrets.ALMERE_DATABASE_URL }}
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          with psycopg.connect(os.environ["DATABASE_URL"], connect_timeout=15) as conn:
+              conn.read_only = True
+              with conn.cursor() as cur:
+                  cur.execute("SET LOCAL statement_timeout = '30s'")
+                  cur.execute("select outstanding, active_leases, complete_evidence from signal_radar.processing_health")
+                  outstanding, leases, complete = cur.fetchone()
+                  cur.execute("""select count(*) filter (where verified_at >= now()-interval '3 hours' and original_source_checked and dossier_history_checked and duplicate_checked and disposition_checked and nullif(btrim(evidence_url),'') is not null and nullif(btrim(evidence_note),'') is not null) as recent_complete,max(verified_at) as last_verification from signal_radar.briefing_verification""")
+                  recent, last = cur.fetchone()
+                  cur.execute("select max(last_attempt_at), count(*) filter (where last_attempt_at >= now()-interval '3 hours') from signal_radar.briefing_work_state")
+                  attempt, attempts = cur.fetchone()
+                  report = f"Outstanding: {outstanding}; active leases: {leases}; complete evidence: {complete}; recent complete records: {recent}; last verification: {last}; recent attempted items: {attempts}; last attempt: {attempt}"
+                  print(report)
+                  with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+                      f.write(report + "\n")
+                  if outstanding and not recent:
+                      print("::error::No complete evidence records in the last three hours; inspect attempt and lease metrics.")
+                      raise SystemExit(1)
+          PY
